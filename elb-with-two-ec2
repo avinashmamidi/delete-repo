@@ -1,0 +1,100 @@
+import boto3
+
+# ec2 client
+ec2_client = boto3.client('ec2',region_name="ap-south-1")
+
+# sg creation
+sg_response = ec2_client.create_security_group(
+    Description='SG for boto3 instances',
+    GroupName='boto3'
+)
+
+# sg inbound creation
+sg_inbound_response = ec2_client.authorize_security_group_ingress(
+    GroupName='boto3',
+    IpPermissions=[
+        {
+            'FromPort': 80,
+            'IpProtocol': 'tcp',
+            'IpRanges': [
+                {
+                    'CidrIp': '0.0.0.0/0',
+                    'Description': 'opens http port',
+                },
+            ],
+            'ToPort': 80,
+        },
+    ],
+)
+
+
+# function to create ec2 instances
+def create_ec2_instances(ud):
+    response = ec2_client.run_instances(
+        MaxCount=1,
+        MinCount=1,
+        ImageId="ami-0a23ccb2cdd9286bb",
+        InstanceType='t2.micro',
+        SecurityGroupIds=[sg_response['GroupId']],
+        UserData=ud,
+        KeyName='avi-jes-mumbai'
+        )
+    return response
+
+
+# created two variables to make use in above function
+UserData1="""#!/bin/bash
+yum update -y
+yum install httpd -y
+service httpd start
+chkconfig httpd on
+echo "<html><body><h1>Hello world 1</h1></body></html>" > /var/www/html/index.html"""
+
+UserData2="""#!/bin/bash
+yum update -y
+yum install httpd -y
+service httpd start
+chkconfig httpd on
+echo "<html><body><h1>Hello world 2</h1></body></html>" > /var/www/html/index.html"""
+
+instance_ids = []
+
+#loop into the list of userdata to create the ec2 instances
+for i in [UserData1,UserData2]:
+    response = create_ec2_instances(i)
+    print(response['Instances'][0]['InstanceId'])
+    instance_ids.append(response['Instances'][0]['InstanceId'])
+
+
+#elb client
+elb_client = boto3.client('elb', region_name="ap-south-1")
+
+#create load balancer
+response = elb_client.create_load_balancer(
+    AvailabilityZones=[
+        'ap-south-1a','ap-south-1b',
+    ],
+    Listeners=[
+        {
+            'InstancePort': 80,
+            'InstanceProtocol': 'HTTP',
+            'LoadBalancerPort': 80,
+            'Protocol': 'HTTP',
+        },
+    ],
+    LoadBalancerName='ec2-classicloadbalancer2',
+    SecurityGroups=[sg_response['GroupId']]
+)
+
+#register ec2 instances at load balancer
+response = elb_client.register_instances_with_load_balancer(
+    Instances=[
+        {
+            'InstanceId': instance_ids[0]
+        },
+        {
+            'InstanceId': instance_ids[1]
+        },
+    ],
+    LoadBalancerName='ec2-classicloadbalancer2',
+)
