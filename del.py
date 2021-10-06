@@ -395,3 +395,6 @@ b = {
 
 
 print(b['Reservations'][0]['Instances'][0]['BlockDeviceMappings'][0]['Ebs']['VolumeId'])
+
+
+added a new line
